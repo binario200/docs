@@ -38,11 +38,11 @@ In its current version, the Redstone blueprint contains the following features:
 
 * Puppet master automation, create new modules and promote them in the :term:`forj-config` project.
 * Gerrit/git services for revision control and change management.
-	* Login with Launchpad openid, use `www.launchpad.net <http://www.launchpad.net>`_ to setup your email account for authentication.
+	* Login with Launchpad openid or LDAP , use `www.launchpad.net <http://www.launchpad.net>`_ to setup your email account for authentication. Use LDAP's configuration options to set up your Enterprise Directory Data for authentication.
 	* Create open commits that can be reviewed with the team and gated for change before they hit master.
 	* Tag and release changes when they are ready for testing or production.
 	* Mark commits as work in progress or abandon revert old changes.
-	* Create new gerrit projects and acl’s managed from source in forj-config project.
+	* Create new gerrit projects and aclï¿½s managed from source in forj-config project.
 * Jenkins/Zuul integration
 	* Create zuul macros to automate common build task, or re-use pre-existing openstack macros included in the pre-configured forj-config project.
 	* Create automatic Jenkins jobs so that your team no longer manages Jenkins setup on Jenkins master, all configuration is managed as source in forj-config git project.
@@ -53,12 +53,12 @@ In its current version, the Redstone blueprint contains the following features:
 * Pastebin integration
 	* Collaborate with team mates with code snippets and log pasting for troubleshooting defects.
 * Defect tracking
-	* Mark gerrit changes with defect id’s to link to your defect system with Launchpad or HP Agile Manager
+	* Mark gerrit changes with defect idï¿½s to link to your defect system with Launchpad or HP Agile Manager
 
 Project Management
 ------------------
 
-You can manage project using Maestro user interface, or by editing the "forj-config" GIT repository (through Gerrit). 
+You can manage project using Maestro user interface, or by editing the "forj-config" GIT repository (through Gerrit).
 
 Adding a new project
 ********************
@@ -111,7 +111,7 @@ You have full control of project creation by checking out the forj-config projec
 		$ git add <new-project-acl-file>
 		$ git add review.projects.yaml.erb
 		$ git commit -m "my new project"
-		$ git push 
+		$ git push
 
 * To learn more on how to configure yaml, see `jeepb <http://ci.openstack.org/jeepyb.html>`_ docs.
 * you can migrate public projects with the upstream option.
@@ -126,7 +126,7 @@ Zuul configuration consist of 4 basic parts.
 
 	* this is only needed if you need a new compiler option, or new tool that will not exist on the build server.
 
-	* configure in the following section ci-node -> class cdk_project::jenkins -> job_builder_configs. 
+	* configure in the following section ci-node -> class cdk_project::jenkins -> job_builder_configs.
 
 	Example:
 
@@ -224,6 +224,79 @@ User management
 ---------------
 
 In the Redstone blueprint, the first user who authenticates to Gerrit and Jenkins become administrator. Then, it is the role of the administrator to add users in the respective tools and projects.
+
+Configuring Gerrit with LDAP
+****************************
+In order to enable Gerrit's LDAP authentication, you need to configure it first.
+
+* In the path **forj-config/modules/runtiem_project/files/hiera/layouts/review.yaml** you need to uncomment the LDAP configuration section
+
+    .. sourcecode:: yaml
+
+      #LDAP OPENID Configuration values
+      cdk_project::gerrit::auth_type:                        'OPENID_SSO' # or LDAP
+      cdk_project::gerrit::openidssourl:                     'https://login.launchpad.net/+openid'
+      #cdk_project::gerrit::ldap_server:                      '' # ldaps://example.com
+      #cdk_project::gerrit::ldap_account_base:                '' # ou =
+      #cdk_project::gerrit::ldap_username:                    ''
+      #cdk_project::gerrit::ldap_password:                    ''
+      #cdk_project::gerrit::ldap_account_pattern:             '' # (&(objectClass=person)(uid=${username}))'
+      #cdk_project::gerrit::ldap_account_emailaddress:        ''
+      #cdk_project::gerrit::ldap_account_fullname:            ''
+      #cdk_project::gerrit::ldap_sslverify:                   ''
+      #cdk_project::gerrit::ldap_ssh_account_name:            ''
+
+      #cdk_project::gerrit::ldap_groupscope:                  '' # subtree
+      #cdk_project::gerrit::ldap_groupbase:                   ''
+      #cdk_project::gerrit::ldap_group_pattern:               '' # (&(objectClass=groupOfNames)(cn=${groupname}))
+      #cdk_project::gerrit::ldap_group_member_pattern:        '' # (member=${dn})
+
+      #...
+
+      cdk_projects::gerrit::first_account_classes:
+         - gerrit_config::firstldapadmin   # uncomment when you are enabling ldap auth.
+
+* Change the auth_type default value (OPENID_SSO) to LDAP
+* Provide your company's LDAP values.
+  * LDAP mandatory configuration values are:
+    * Server
+    * Account base
+    * SSL Verify (set to **false if you use ldaps:// server**)
+    * Account pattern
+  * The rest of the LDAP configuration values depend on your company's Enterprise Directory Data and if you need to retrieve LDAP groups (in that case group's config will be mandatory)
+  * Also important is to uncomment the firs_account_classes and firstldapdmin configurations to grant administrator permissions to the first user who authenticates to Gerrit.
+
+.. note:: After enabling LDAP configuration you can wait until puppet applies the changes or you can force "Puppet Apply" and speed up the process through the Jenkins "puppet-apply-all-nodes" job, or directly in a terminal session on the Maestro / Puppet master system.
+
+And invariably you will need to restart Gerrit service
+
+  .. sourcecode:: console
+
+    $ sudo service gerrit restart
+
+Migrating to LDAP from OpenID Authentication
+********************************************
+
+This is the tested scenario where migrating from OpendId to LDAP authentication works
+
+* Selecting LDAP email address as LDAP Field used to login.Otherwise, you have to find another way to calculate the external_id and have it match your LDAP settings and expected field values.
+* To keep existing OpendID account configuration and generate the users logins in base of LDPA email address, Gerrit reviewdb database has to be modified in the following way:
+
+  .. sourcecode:: sql
+
+      INSERT INTO account_external_ids
+      SELECT
+        account_id,
+        NULL AS email_address,
+        NULL AS password,
+        CONCAT('gerrit:',email_address)
+        AS external_id
+      FROM
+        account_external_ids
+      WHERE
+        email_address LIKE '%@yourcompanydomaing.com' AND external_id LIKE 'https://%';
+
+
 
 Configure Email Notifications
 -----------------------------
@@ -352,13 +425,13 @@ attempt to describe how to use external DNS service.
    ./files/hiera/layouts   review.yaml                          review.yourdomain.com
    ./files/hiera/layouts   util.yaml                            util.yourdomain.com
    =====================   ==================================   ====================
-   
+
 2. Configuration for **maestro** node.
 
    **[forj-config]/modules/runtime_project/files/hiera/layouts/maestro.yaml**
 
    - From:
-   
+
      .. sourcecode:: yaml
 
          jimador::site:
@@ -367,7 +440,7 @@ attempt to describe how to use external DNS service.
          #...
 
    - To:
-   
+
      .. sourcecode:: yaml
 
          jimador::site:
@@ -380,9 +453,9 @@ attempt to describe how to use external DNS service.
    **[forj-config]/modules/runtime_project/files/hiera/layouts/ci.yaml**
 
    - From:
-   
+
      .. sourcecode:: yaml
-   
+
          #Jenkins tool
          cdk_project::jenkins::vhost_name:               "%{::maestro::node_vhost_lookup::vname}"
          #...
@@ -393,9 +466,9 @@ attempt to describe how to use external DNS service.
          #...
 
    - To:
-   
+
      .. sourcecode:: yaml
-   
+
          #Jenkins tool
          cdk_project::jenkins::vhost_name:               "ci.yourdomain.com"
          #...
@@ -410,9 +483,9 @@ attempt to describe how to use external DNS service.
    **[forj-config]/modules/runtime_project/files/hiera/layouts/review.yaml**
 
    - From:
-   
+
      .. sourcecode:: yaml
-   
+
          #...
          cdk_project::gerrit::vhost_name:                       "%{::maestro::node_vhost_lookup::vname}"
          cdk_project::gerrit::ip_vhost_name:                    "%{::maestro::node_vhost_lookup::vname}"
@@ -420,9 +493,9 @@ attempt to describe how to use external DNS service.
          #...
 
    - To:
-   
+
      .. sourcecode:: yaml
-   
+
          #...
          cdk_project::gerrit::vhost_name:                       "review.yourdomain.com"
          cdk_project::gerrit::ip_vhost_name:                    "review.yourdomain.com"
@@ -434,15 +507,15 @@ attempt to describe how to use external DNS service.
    **[forj-config]/modules/runtime_project/files/hiera/layouts/util.yaml**
 
    - From:
-   
+
      .. sourcecode:: yaml
-   
+
          #...
          cdk_project::status::vhost_name: "%{::maestro::node_vhost_lookup::vname}"
          cdk_project::status::graphite_url: "http://%{::maestro::node_vhost_lookup::vname}:8081"
          cdk_project::status::static_url: "http://%{::maestro::node_vhost_lookup::vname}:8080"
          cdk_project::status::maestro_url: "http://%{::eroip}"
-         
+
          # 'graphite' tool
          cdk_project::graphite::vhost_name: "%{::maestro::node_vhost_lookup::vname}"
          #...
@@ -451,15 +524,15 @@ attempt to describe how to use external DNS service.
          #...
 
    - To:
-   
+
      .. sourcecode:: yaml
-   
+
          #...
          cdk_project::status::vhost_name: "util.yourdomain.com"
          cdk_project::status::graphite_url: "http://util.yourdomain.com:8081"
          cdk_project::status::static_url: "http://util.yourdomain.com:8080"
          cdk_project::status::maestro_url: "http://maestro.yourdomain.com"
-         
+
          # 'graphite' tool
          cdk_project::graphite::vhost_name: "util.yourdomain.com"
          #...
@@ -484,33 +557,33 @@ site because these certificates are not typically trusted by the browser.
 In this section we will describe the process you can follow for configuring a
 digitally signed certificate from a certificate authority that would more
 commonly be trusted by your browser.  This would replace the automated self
-signed certificates that are auto generated by maestro.  When making changes to 
+signed certificates that are auto generated by maestro.  When making changes to
 the [forj-config] repository, be aware that the same ci workflow used for updating
 projects and gates still applies here.
 
 1. Generate a private key and certificate signing request(csr).
-   This can be performed with 
-   `these instructions <https://knowledge.verisign.com/support/ssl-certificates-support/index?page=content&actp=CROSSLINK&id=AR198>`_ 
+   This can be performed with
+   `these instructions <https://knowledge.verisign.com/support/ssl-certificates-support/index?page=content&actp=CROSSLINK&id=AR198>`_
    documented on the verisign website.
 
    Example:
 
    .. sourcecode:: console
-   
-      $ openssl genrsa -passout pass:secretpass -des3 -out review.yourdomain.com.key 2048
-      $ openssl req -new -key review.yourdomain.com.key -out review.yourdomain.com.csr    
 
--  Submit the .csr request to your certificate authority (verisign for example) 
+      $ openssl genrsa -passout pass:secretpass -des3 -out review.yourdomain.com.key 2048
+      $ openssl req -new -key review.yourdomain.com.key -out review.yourdomain.com.csr
+
+-  Submit the .csr request to your certificate authority (verisign for example)
    and save away your private keys.  If you also recieve intermediate
    certificates, such as a corporate signing authority, you will need to save
    those as well.  These will be your intermediate certificate chain.
 -  Ideally this request is performed for **review** and **ci** nodes.  Long term, you will also want one for the maestro node.
    At this time, we do not need a certificate for the **maestro** node.
-  
+
 2. Create a custom_certs module to deliver your certs.
 
    clone the [forj-config] project from your Redstone forge so that we can create a new module to store and deploy
-   the certificates.  Even though the private key is protected, it's possible to store the credentials for the 
+   the certificates.  Even though the private key is protected, it's possible to store the credentials for the
    certificate in a secure hiera eyaml file on maestro for decription.  In these steps we are only creating
    the certificates for **review** node, but you can repeat this for **ci** and **maestro** nodes.
 
@@ -527,19 +600,19 @@ projects and gates still applies here.
    ./files/certs          review.yourdomain.com.cst            Your x509 signed cert from your certificate provider.
    ./files/manifests      review_sslparams.pp                  This will contain puppet ref vars to ssl cert contents.
    ====================   ==================================   ====================
-   
+
 
 3. Create a class file **<node>**\_sslparams.pp for each cert that will be needed.
-   In this case we create the class file for the **review** node (review_sslparams.pp).  
+   In this case we create the class file for the **review** node (review_sslparams.pp).
    We can't use the normal puppet file function because it will fail on runs where the cert doesn't exist, but
    we can use a custom parser function provided by [forj-oss/maestro]::cacerts called cacerts_getkey.
-   
+
    Sample Code to create in forj-config:
-   
+
    [forj-config] / modules / custom_certs / manifest / review_sslparams.pp
-   
+
    .. sourcecode:: puppet
-       
+
         class custom_certs::review_sslparams
         (
           $ca_certs_db  = hiera('cacerts::ca_certs_db','/opt/config/cacerts'),
@@ -559,8 +632,8 @@ projects and gates still applies here.
           }
         }
 
-  - The default location for certs will be in /opt/config/cacerts for maestro node.  
-    Under this folder we will place the custom certs in a custom folder.  
+  - The default location for certs will be in /opt/config/cacerts for maestro node.
+    Under this folder we will place the custom certs in a custom folder.
     The notify resource will be used to sequence the cert configuration of the
     parameters prior to any actions on the classes from gerrit.
   - Note, the chain.crt is simply the collection of pem files for the certificate
@@ -570,7 +643,7 @@ projects and gates still applies here.
   - repeat the steps for the ci node, by changing all the **review** names to **ci**.
   - Note, for the ci node, change :
       **before => Class['cdk_project::gerrit'],**
-    to 
+    to
       **before => Class['cdk_project::jenkins'],**
 
 4. Un-comment or add this sections to maestro.yaml in [forj-config]::runtime_project
@@ -578,16 +651,16 @@ projects and gates still applies here.
    **/opt/config/cacerts/custom** on the **maestro** node.
 
    Sample Code to create in forj-config:
-   
+
    [forj-config] / modules / runtime_project / files / hiera / layouts / maestro.yaml
-   
+
    .. sourcecode:: yaml
-   
+
       classes:
         - runtime_project::install
         - sysadmin_config::manage_servers
         - cacerts::custom                  # user story #2189: uncomment this to enable custom cert installation
-      
+
       # ...
       # 2. uncomment the source module that will hold all custom certs to be unpackaged.
       cacerts::custom::source: 'puppet:///modules/custom_certs/certs'
@@ -599,9 +672,9 @@ projects and gates still applies here.
    Make sure **thepassword** matches the password you selected in step 1 for **secretpass**.
 
    **ssh to maestro node**:
-   
+
    .. sourcecode:: console
-   
+
       $ sudo -i
       $ cd /etc/puppet/secure
       $ eyaml encrypt -l 'cacerts::custom::ca_pass' -s 'thepassword' | grep "cacerts::custom::ca_pass: ENC" >> /etc/puppet/hieradata/common.eyaml
@@ -610,7 +683,7 @@ projects and gates still applies here.
    If you are setting up custom certs for **review** and **ci** nodes, then you will update the follwing two files:
 
    =============================================   ===============
-   Directory                                       file           
+   Directory                                       file
    =============================================   ===============
    /modules/runtime_project/files/hiera/layouts    review.yaml
    /modules/runtime_project/files/hiera/layouts    ci.yaml
@@ -619,21 +692,21 @@ projects and gates still applies here.
 
    - Add another class to classes: array.
    - Set the ssl_*_contents sections to the class param values.
-   
+
    review.yaml contents:
 
    .. sourcecode:: yaml
 
       classes:
         - custom_certs::review_sslparams
-      
+
       # ...
-      
+
       # these will be automatically created if we pass them in empty.
       cdk_project::gerrit::ssl_cert_file_contents:           "%{::custom_certs::review_sslparams::ssl_cert_file_contents}"
       cdk_project::gerrit::ssl_key_file_contents:            "%{::custom_certs::review_sslparams::ssl_key_file_contents}"
       cdk_project::gerrit::ssl_chain_file_contents:          "%{::custom_certs::review_sslparams::ssl_chain_file_contents}"
-      
+
       # ...
 
    ci.yaml contents:
@@ -642,29 +715,29 @@ projects and gates still applies here.
 
       classes:
         - custom_certs::ci_sslparams
-      
+
       # ...
-      
+
       # these will be automatically created if we pass them in empty.
       cdk_project::jenkins::ssl_cert_file_contents:   "%{::custom_certs::ci_sslparams::ssl_cert_file_contents}"
       cdk_project::jenkins::ssl_key_file_contents:    "%{::custom_certs::ci_sslparams::ssl_key_file_contents}"
       cdk_project::jenkins::ssl_chain_file_contents:  "%{::custom_certs::ci_sslparams::ssl_chain_file_contents}"
-      
+
       # ...
 
 7. Execute puppet apply commands as root on **maestro**, **ci**, and **review** nodes in that order.
    Connect to the maestro node and run these commands:
 
    .. sourcecode:: console
-   
+
       $ sudo -i
       $ puppet agent -t
       $ salt -E '(ci|review).*' cmd.run "/usr/bin/puppet agent -t"
- 
+
 8. If certs don't imediately install, you can also restart apache services on each node:
 
    .. sourcecode:: console
-   
+
       $ salt -E '(ci|review).*' cmd.run "service apache2 restart"
 
 
@@ -676,13 +749,13 @@ FAQ
 
    Creating a new project on a redstone forge means creating a new Gerrit repository.
    We use the CI workflow of the forge itself to manage the project creation process.
-   Configuration files are modified and updated to provide the administrator of 
-   the forge an oportunity to review the commit. Currently we do not provide 
+   Configuration files are modified and updated to provide the administrator of
+   the forge an oportunity to review the commit. Currently we do not provide
    automatic review option, but one could be setup using zuul gate triggers.
 
 ... re-trigger the verification for project create change request?
 
-   If your forge did not trigger a verification check for the project creation 
+   If your forge did not trigger a verification check for the project creation
    request, it is possible to re-trigger the request on the change request.
    Go to the change request and add a new comment.  Make the comment text say:
    'recheck no bug'. This should trigger a zuul gate check for the change request.
@@ -690,8 +763,8 @@ FAQ
 ... approve a new project creation request on gerrit?
 
     First you must be the administrator of your forge or contact and the administrator
-    of the forge you will try to access.  The approving user must be added to the 
-    group, forj-core.  This can be done in Gerrit from the Admin->Groups menu by the 
+    of the forge you will try to access.  The approving user must be added to the
+    group, forj-core.  This can be done in Gerrit from the Admin->Groups menu by the
     Gerrit administrator.  Once done, the user added can then administer
     approvals by adding +2 for Code Review and +1 for Approved on the change request.
 
@@ -699,9 +772,9 @@ FAQ
 
     Approval permissions for groups is managed by the forj-config acl's file.
     This can be updated with a change request update to the forj-config source on the
-    file : 
+    file :
     [forj-config.git]/modules/runtime_project/files/gerrit/acls/production/forj-config.config
-    
+
     Change the group forj-core to a new group name.  If the group does not exist
     a new one will be created.
 
